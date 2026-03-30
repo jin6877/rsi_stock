@@ -812,46 +812,83 @@ app.post('/api/portfolio/buy', (req, res) => {
   res.json(entry);
 });
 
-// 포트폴리오 조회 (현재가 포함 - 보유중만)
+// ─── 네이버 금융 실시간 현재가 (캐시 + 병렬) ───
+const naverPriceCache = {};    // { '005930': { price, time, fetchedAt } }
+const NAVER_CACHE_MS = 3000;   // 3초 캐시 — 장중 실시간성 확보하면서 차단 방지
+
+async function fetchNaverPrice(code) {
+  const url = `https://m.stock.naver.com/api/stock/${code}/basic`;
+  const r = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+  });
+  if (!r.ok) throw new Error(`Naver ${r.status}`);
+  const d = await r.json();
+  const price = parseInt((d.closePrice || '0').replace(/,/g, ''), 10);
+  if (!price) throw new Error('No price');
+  // localTradedAt: "2026-03-30T14:39:01+09:00"
+  let time = null;
+  if (d.localTradedAt) {
+    const dt = new Date(d.localTradedAt);
+    time = dt.toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
+  }
+  return { price, time };
+}
+
+async function fetchNaverPrices(codes) {
+  if (!codes.length) return {};
+  const now = Date.now();
+
+  // 캐시 만료된 것만 조회 (병렬)
+  const uncached = codes.filter(c => {
+    const cached = naverPriceCache[c];
+    return !cached || (now - cached.fetchedAt > NAVER_CACHE_MS);
+  });
+
+  if (uncached.length > 0) {
+    const results = await Promise.allSettled(
+      uncached.map(async code => {
+        const data = await fetchNaverPrice(code);
+        naverPriceCache[code] = { ...data, fetchedAt: Date.now() };
+        return { code, ...data };
+      })
+    );
+    results.forEach(r => {
+      if (r.status === 'rejected') console.error('네이버 현재가 오류:', r.reason?.message);
+    });
+  }
+
+  const result = {};
+  for (const c of codes) {
+    result[c] = naverPriceCache[c] || null;
+  }
+  return result;
+}
+
+// ticker(005930.KS) → 종목코드(005930) 변환
+function tickerToCode(ticker) {
+  return ticker.replace(/\.(KS|KQ)$/i, '');
+}
+
+// 포트폴리오 조회 (네이버 실시간 현재가 - 보유중만)
 app.get('/api/portfolio', async (req, res) => {
   const portfolio = loadPortfolio().filter(p => p.status !== 'sold');
   if (!portfolio.length) return res.json([]);
 
-  // 현재가 조회 (간단 fetch - 분석용이 아니라 캔들 수 체크 불필요)
-  async function fetchCurrentPrice(ticker) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=5d&interval=1d`;
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const json = await r.json();
-    const meta = json.chart?.result?.[0]?.meta;
-    let price = null;
-    let marketTime = null;
+  // 보유 종목코드 추출 → 네이버 API 1회 호출
+  const codes = [...new Set(portfolio.map(p => tickerToCode(p.ticker)))];
+  const prices = await fetchNaverPrices(codes);
 
-    if (meta?.regularMarketPrice) {
-      price = Math.round(meta.regularMarketPrice);
-    } else {
-      // fallback: 마지막 유효 close
-      const closes = json.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
-      for (let i = closes.length - 1; i >= 0; i--) {
-        if (closes[i] != null) { price = Math.round(closes[i]); break; }
-      }
-    }
-    if (!price) throw new Error('No price');
-
-    // Yahoo Finance가 제공하는 마지막 거래 시각 (Unix timestamp)
-    if (meta?.regularMarketTime) {
-      const tz = meta.exchangeTimezoneName || 'Asia/Seoul';
-      marketTime = new Date(meta.regularMarketTime * 1000).toLocaleString('ko-KR', {
-        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-      });
-    }
-    return { price, marketTime };
-  }
-
-  const results = await Promise.all(portfolio.map(async (item) => {
+  const results = portfolio.map(item => {
     try {
-      const { price: currentPrice, marketTime } = await fetchCurrentPrice(item.ticker);
+      const code = tickerToCode(item.ticker);
+      const priceData = prices[code];
+      if (!priceData || !priceData.price) throw new Error('No price');
+
+      const currentPrice = priceData.price;
+      const marketTime = priceData.time;
       const actualBuy = item.actual_price || item.buy_price;
       const qty = item.quantity || 1;
       const pnlPerShare = currentPrice - actualBuy;
@@ -871,7 +908,7 @@ app.get('/api/portfolio', async (req, res) => {
     } catch {
       return { ...item, current_price: null, price_fetched_at: null, pnl: null, pnl_pct: null, status: 'ERROR' };
     }
-  }));
+  });
 
   res.json(results);
 });

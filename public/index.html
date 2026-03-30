@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KRX RSI 투자 에이전트</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, 'Pretendard', sans-serif; background:#0f1117; color:#e1e4e8; min-height:100vh; }
+
+.header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; background:#161b22; border-bottom:1px solid #30363d; }
+.header h1 { font-size:20px; font-weight:700; }
+.header h1 span { color:#58a6ff; }
+.header-right { display:flex; align-items:center; gap:12px; }
+.countdown { font-size:13px; color:#8b949e; background:#21262d; padding:6px 14px; border-radius:20px; }
+.countdown.refreshing { color:#f0883e; }
+
+.tabs { display:flex; gap:0; background:#161b22; border-bottom:1px solid #30363d; padding:0 24px; }
+.tab { padding:12px 24px; cursor:pointer; font-size:14px; color:#8b949e; border-bottom:2px solid transparent; transition:all .2s; }
+.tab:hover { color:#e1e4e8; }
+.tab.active { color:#58a6ff; border-bottom-color:#58a6ff; }
+
+.content { max-width:960px; margin:0 auto; padding:24px; }
+
+.alert-banner { padding:14px 20px; border-radius:10px; margin-bottom:16px; font-weight:600; font-size:15px; display:none; animation:slideDown .3s ease; }
+.alert-banner.buy { display:block; background:rgba(35,134,54,.2); border:1px solid #238636; color:#3fb950; }
+.alert-banner.sell { display:block; background:rgba(218,54,51,.2); border:1px solid #da3633; color:#f85149; }
+@keyframes slideDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+
+/* 종목 분석 탭 */
+.search-box { display:flex; gap:10px; margin-bottom:12px; }
+.search-box input { flex:1; padding:10px 14px; border-radius:8px; border:1px solid #30363d; background:#0d1117; color:#e1e4e8; font-size:15px; outline:none; }
+.search-box input:focus { border-color:#58a6ff; }
+.search-box button { padding:10px 24px; background:#238636; color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; }
+.search-box button:hover { background:#2ea043; }
+.search-box { position:relative; }
+.autocomplete-list { position:absolute; top:100%; left:0; right:80px; background:#161b22; border:1px solid #30363d; border-radius:0 0 8px 8px; max-height:240px; overflow-y:auto; z-index:100; display:none; }
+.autocomplete-list.show { display:block; }
+.autocomplete-item { padding:10px 14px; cursor:pointer; font-size:14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; }
+.autocomplete-item:hover, .autocomplete-item.selected { background:#21262d; }
+.autocomplete-item .ac-name { color:#e1e4e8; }
+.autocomplete-item .ac-ticker { color:#8b949e; font-size:12px; }
+
+.chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+.chip { padding:6px 14px; background:#21262d; border:1px solid #30363d; border-radius:20px; font-size:12px; cursor:pointer; color:#8b949e; transition:all .2s; }
+.chip:hover { border-color:#58a6ff; color:#58a6ff; }
+
+.result-card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:24px; }
+.result-card.sell-alert { border-color:#f85149; box-shadow:0 0 20px rgba(248,81,73,.15); }
+
+.result-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
+.stock-info h2 { font-size:22px; margin-bottom:4px; }
+.stock-info .price { font-size:28px; font-weight:700; }
+.stock-info .change { font-size:14px; margin-left:8px; }
+.change.up { color:#3fb950; }
+.change.down { color:#f85149; }
+
+.signal-badge { padding:6px 16px; border-radius:8px; font-size:14px; font-weight:700; display:inline-block; }
+.signal-badge.sm { padding:4px 12px; font-size:12px; }
+.signal-badge.BUY { background:rgba(35,134,54,.2); color:#3fb950; border:1px solid #238636; }
+.signal-badge.SELL { background:rgba(218,54,51,.2); color:#f85149; border:1px solid #da3633; }
+.signal-badge.WATCH { background:rgba(56,139,253,.15); color:#58a6ff; border:1px solid #388bfd; }
+.signal-badge.WAIT { background:rgba(187,128,9,.15); color:#d29922; border:1px solid #9e6a03; }
+
+.sell-warning { background:rgba(218,54,51,.15); border:1px solid #da3633; border-radius:8px; padding:12px 16px; margin-bottom:16px; color:#f85149; font-weight:600; }
+
+.metrics { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px; }
+.metric { background:#0d1117; border-radius:8px; padding:14px; }
+.metric .label { font-size:11px; color:#8b949e; text-transform:uppercase; margin-bottom:4px; }
+.metric .value { font-size:18px; font-weight:600; }
+
+.rsi-gauge { margin-bottom:20px; }
+.rsi-gauge .bar-bg { height:12px; background:#21262d; border-radius:6px; position:relative; overflow:visible; }
+.rsi-gauge .bar-fill { height:100%; border-radius:6px; transition:width .5s; }
+.rsi-gauge .markers { display:flex; justify-content:space-between; font-size:10px; color:#8b949e; margin-top:4px; position:relative; }
+.rsi-gauge .mark { position:absolute; top:-16px; width:1px; height:16px; background:#484f58; }
+.rsi-gauge .mark-30 { left:30%; }
+.rsi-gauge .mark-70 { left:70%; }
+.rsi-gauge .rsi-val { font-size:13px; font-weight:600; margin-bottom:6px; }
+
+.conditions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:20px; }
+.cond-item { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#0d1117; border-radius:6px; font-size:13px; }
+.cond-item .icon { font-size:16px; }
+.cond-item.met .icon { color:#3fb950; }
+.cond-item.unmet .icon { color:#484f58; }
+.cond-item.unmet { color:#6e7681; }
+
+.targets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px; }
+.target-box { padding:14px; border-radius:8px; text-align:center; }
+.target-box .label { font-size:11px; margin-bottom:4px; }
+.target-box .value { font-size:18px; font-weight:700; }
+.target-box.sl { background:rgba(218,54,51,.1); border:1px solid #30363d; }
+.target-box.sl .value { color:#f85149; }
+.target-box.tp { background:rgba(35,134,54,.1); border:1px solid #30363d; }
+.target-box.tp .value { color:#3fb950; }
+.target-box.rr { background:#0d1117; border:1px solid #30363d; }
+.target-box.rr .value { color:#d29922; }
+
+.chart-container { background:#0d1117; border-radius:8px; padding:16px; }
+.chart-container canvas { width:100%!important; height:200px!important; }
+
+/* ─── 스캔 탭 ─── */
+.scan-toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+.market-tabs { display:flex; gap:0; background:#21262d; border-radius:8px; overflow:hidden; }
+.market-tab { padding:8px 20px; cursor:pointer; font-size:13px; color:#8b949e; border:none; background:transparent; transition:all .2s; }
+.market-tab:hover { color:#e1e4e8; }
+.market-tab.active { background:#30363d; color:#58a6ff; font-weight:600; }
+.scan-meta { font-size:12px; color:#484f58; display:flex; align-items:center; gap:8px; }
+.scan-meta .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.scan-meta .dot.live { background:#3fb950; }
+.scan-meta .dot.scanning { background:#f0883e; animation:pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.scan-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
+.stat-box { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:12px; text-align:center; }
+.stat-box .num { font-size:22px; font-weight:700; }
+.stat-box .lbl { font-size:11px; color:#8b949e; margin-top:2px; }
+.stat-box.buy .num { color:#3fb950; }
+.stat-box.sell .num { color:#f85149; }
+.stat-box.watch .num { color:#58a6ff; }
+
+.progress-bar { height:3px; background:#21262d; border-radius:2px; margin-bottom:16px; overflow:hidden; }
+.progress-bar .fill { height:100%; background:#f0883e; transition:width .5s; border-radius:2px; }
+
+.scan-list { display:flex; flex-direction:column; gap:8px; }
+
+.scan-item { background:#161b22; border:1px solid #30363d; border-radius:10px; overflow:hidden; transition:border-color .2s; }
+.scan-item:hover { border-color:#484f58; }
+.scan-item.sell-item { border-color:rgba(248,81,73,.3); }
+.scan-item.buy-item { border-color:rgba(35,134,54,.3); }
+
+.scan-item-header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; cursor:pointer; }
+.scan-left { display:flex; align-items:center; gap:14px; }
+.scan-left .badge { min-width:54px; text-align:center; }
+.scan-left .info h3 { font-size:14px; margin-bottom:2px; }
+.scan-left .info .sub { font-size:11px; color:#8b949e; }
+.scan-right { text-align:right; }
+.scan-right .price { font-size:16px; font-weight:600; }
+.scan-right .rsi { font-size:11px; color:#8b949e; }
+.scan-right .arrow { color:#484f58; margin-left:10px; transition:transform .2s; display:inline-block; }
+.scan-item.open .arrow { transform:rotate(180deg); }
+
+/* 상세 패널 */
+.scan-detail { display:none; padding:0 18px 16px; border-top:1px solid #21262d; }
+.scan-item.open .scan-detail { display:block; }
+.detail-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:12px; }
+.detail-box { background:#0d1117; border-radius:6px; padding:10px; }
+.detail-box .dl { font-size:10px; color:#8b949e; text-transform:uppercase; }
+.detail-box .dv { font-size:15px; font-weight:600; margin-top:2px; }
+.detail-conditions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.detail-cond { font-size:11px; padding:3px 10px; border-radius:12px; }
+.detail-cond.met { background:rgba(35,134,54,.15); color:#3fb950; }
+.detail-cond.unmet { background:#21262d; color:#484f58; }
+.detail-targets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:12px; }
+.detail-targets .dt { text-align:center; padding:8px; background:#0d1117; border-radius:6px; }
+.detail-targets .dt .dl { font-size:10px; color:#8b949e; }
+.detail-targets .dt .dv { font-size:14px; font-weight:600; margin-top:2px; }
+.detail-btn { margin-top:12px; padding:8px 16px; background:#21262d; border:1px solid #30363d; border-radius:6px; color:#58a6ff; font-size:12px; cursor:pointer; }
+.detail-btn:hover { background:#30363d; }
+
+/* ─── 포트폴리오 탭 ─── */
+.pf-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+.pf-summary .stat-box .num.profit { color:#3fb950; }
+.pf-summary .stat-box .num.loss { color:#f85149; }
+
+.pf-list { display:flex; flex-direction:column; gap:10px; }
+.pf-card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:18px; position:relative; }
+.pf-card.target-hit { border-color:#3fb950; box-shadow:0 0 12px rgba(63,185,80,.15); }
+.pf-card.stoploss-hit { border-color:#f85149; box-shadow:0 0 12px rgba(248,81,73,.15); animation:pulse-red 2s infinite; }
+@keyframes pulse-red { 0%,100%{box-shadow:0 0 12px rgba(248,81,73,.15)} 50%{box-shadow:0 0 20px rgba(248,81,73,.3)} }
+
+.pf-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; }
+.pf-top h3 { font-size:15px; margin-bottom:2px; }
+.pf-top .sub { font-size:11px; color:#8b949e; }
+.pf-status { padding:4px 12px; border-radius:12px; font-size:11px; font-weight:700; }
+.pf-status.TARGET { background:rgba(35,134,54,.2); color:#3fb950; }
+.pf-status.STOPLOSS { background:rgba(218,54,51,.2); color:#f85149; }
+.pf-status.PROFIT { background:rgba(35,134,54,.1); color:#3fb950; }
+.pf-status.LOSS { background:rgba(218,54,51,.1); color:#f85149; }
+.pf-status.ERROR { background:#21262d; color:#8b949e; }
+
+.pf-body { display:flex; gap:16px; margin-bottom:12px; }
+.pf-table { flex:0 0 auto; min-width:180px; }
+.pf-table table { width:100%; border-collapse:collapse; }
+.pf-table table td { padding:4px 0; font-size:12px; }
+.pf-table table td:first-child { color:#8b949e; padding-right:12px; white-space:nowrap; }
+.pf-table table td:last-child { font-weight:600; text-align:right; font-variant-numeric:tabular-nums; }
+.pf-bar-area { flex:1; display:flex; flex-direction:column; justify-content:center; min-width:0; }
+
+.pf-bar-wrap { position:relative; padding-top:28px; margin-bottom:6px; }
+.pf-bar { height:8px; background:#21262d; border-radius:4px; position:relative; overflow:visible; }
+.pf-bar .pf-bar-fill { height:100%; border-radius:4px; }
+.pf-bar .pf-marker { position:absolute; top:-4px; width:2px; height:16px; border-radius:1px; }
+.pf-bar .pf-marker.sl { background:#f85149; }
+.pf-bar .pf-marker.tp { background:#3fb950; }
+.pf-bar .pf-marker.cur { background:#fff; width:3px; top:-5px; height:18px; }
+.pf-cur-label { position:absolute; top:0; transform:translateX(-50%); background:#30363d; color:#e6edf3; font-size:12px; font-weight:700; padding:2px 8px; border-radius:6px; white-space:nowrap; }
+.pf-cur-label::after { content:''; position:absolute; bottom:-4px; left:50%; transform:translateX(-50%); border-left:4px solid transparent; border-right:4px solid transparent; border-top:4px solid #30363d; }
+.pf-bar-labels { display:flex; justify-content:space-between; font-size:10px; color:#6e7681; margin-top:6px; }
+.pf-bar-labels .sl-label { color:#f85149; }
+.pf-bar-labels .tp-label { color:#3fb950; }
+.pf-bar-time { text-align:center; font-size:10px; color:#484f58; margin-top:4px; }
+
+.pf-pnl { font-size:20px; font-weight:700; text-align:center; margin-bottom:8px; }
+@media (max-width:500px) { .pf-body { flex-direction:column; } .pf-table { min-width:auto; } }
+.pf-actions { display:flex; justify-content:space-between; align-items:center; }
+.sell-btn { padding:6px 16px; background:rgba(218,54,51,.15); border:1px solid #da3633; border-radius:6px; color:#f85149; font-size:12px; font-weight:600; cursor:pointer; }
+.sell-btn:hover { background:rgba(218,54,51,.3); }
+.pf-date { font-size:11px; color:#484f58; }
+
+.buy-btn-inline { padding:6px 14px; background:rgba(35,134,54,.15); border:1px solid #238636; border-radius:6px; color:#3fb950; font-size:12px; font-weight:600; cursor:pointer; margin-left:6px; }
+.buy-btn-inline:hover { background:rgba(35,134,54,.3); }
+
+.empty-state { text-align:center; padding:60px 20px; color:#6e7681; }
+.empty-state .icon { font-size:48px; margin-bottom:12px; }
+.loading { text-align:center; padding:40px; color:#8b949e; }
+
+.tab-content { display:none; }
+.tab-content.active { display:block; }
+
+.strategy-tag { font-size:11px; background:#21262d; padding:3px 10px; border-radius:10px; color:#8b949e; margin-left:8px; }
+
+/* 보유 현황 섹션 (종목분석 내) */
+.holdings-section { margin-bottom:20px; }
+.holdings-section .hs-title { font-size:13px; color:#8b949e; margin-bottom:10px; font-weight:600; }
+.holding-row { display:flex; justify-content:space-between; align-items:center; background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:12px 16px; margin-bottom:8px; }
+.holding-row.stoploss-hit { border-color:#f85149; }
+.holding-row.target-hit { border-color:#3fb950; }
+.holding-info { display:flex; flex-direction:column; gap:3px; }
+.holding-info .hi-main { font-size:14px; font-weight:600; }
+.holding-info .hi-sub { font-size:11px; color:#8b949e; }
+.holding-pnl { text-align:right; margin-right:12px; }
+.holding-pnl .hp-val { font-size:16px; font-weight:700; }
+.holding-pnl .hp-sub { font-size:11px; color:#8b949e; }
+.holding-actions { display:flex; gap:8px; align-items:center; }
+.timestamp { font-size:11px; color:#484f58; margin-top:12px; text-align:right; }
+
+/* ─── 모달 ─── */
+.modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.6); z-index:1000; justify-content:center; align-items:center; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:#161b22; border:1px solid #30363d; border-radius:14px; padding:28px; width:380px; max-width:90vw; }
+.modal-box h3 { font-size:17px; margin-bottom:6px; }
+.modal-box .modal-sub { font-size:12px; color:#8b949e; margin-bottom:20px; }
+.modal-field { margin-bottom:14px; }
+.modal-field label { display:block; font-size:12px; color:#8b949e; margin-bottom:5px; }
+.modal-field input { width:100%; padding:10px 12px; background:#0d1117; border:1px solid #30363d; border-radius:8px; color:#e1e4e8; font-size:15px; outline:none; }
+.modal-field input:focus { border-color:#58a6ff; }
+.modal-field .hint { font-size:11px; color:#484f58; margin-top:4px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+.modal-actions button { padding:10px 22px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; border:none; }
+.modal-cancel { background:#21262d; color:#8b949e; }
+.modal-cancel:hover { background:#30363d; }
+.modal-confirm { background:#238636; color:#fff; }
+.modal-confirm:hover { background:#2ea043; }
+.modal-confirm.sell-confirm { background:#da3633; }
+.modal-confirm.sell-confirm:hover { background:#f85149; }
+
+/* ─── 매매 기록 탭 ─── */
+.history-list { display:flex; flex-direction:column; gap:10px; }
+.history-card { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:18px; }
+.history-card .h-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+.history-card .h-top h3 { font-size:14px; }
+.history-card .h-top .h-result { padding:4px 14px; border-radius:12px; font-size:12px; font-weight:700; }
+.history-card .h-top .h-result.profit { background:rgba(35,134,54,.2); color:#3fb950; }
+.history-card .h-top .h-result.loss { background:rgba(218,54,51,.2); color:#f85149; }
+.history-card .h-prices { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px; }
+.history-card .h-prices .hp { text-align:center; }
+.history-card .h-prices .hp .hl { font-size:10px; color:#8b949e; }
+.history-card .h-prices .hp .hv { font-size:14px; font-weight:600; margin-top:2px; }
+.history-card .h-dates { display:flex; justify-content:space-between; font-size:11px; color:#484f58; }
+.h-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+.h-summary .stat-box .num.profit { color:#3fb950; }
+.h-summary .stat-box .num.loss { color:#f85149; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📊 KRX <span>RSI</span> 투자 에이전트</h1>
+  <div class="header-right">
+    <div class="countdown" id="countdown">-</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="analyze">종목 분석</div>
+  <div class="tab" data-tab="scan">종목 추천</div>
+  <div class="tab" data-tab="portfolio">내 포트폴리오</div>
+  <div class="tab" data-tab="history">매매 기록</div>
+</div>
+
+<div class="content">
+  <div class="alert-banner" id="alertBanner"></div>
+
+  <!-- 종목 분석 탭 -->
+  <div class="tab-content active" id="tab-analyze">
+    <div class="search-box">
+      <input type="text" id="tickerInput" placeholder="종목명 입력 (예: 삼성전자, SK하이닉스)" autocomplete="off" />
+      <button onclick="doAnalyze()">분석</button>
+      <div class="autocomplete-list" id="autocompleteList"></div>
+    </div>
+    <div class="chips">
+      <div class="chip" onclick="quickSelect('005930.KS')">삼성전자</div>
+      <div class="chip" onclick="quickSelect('000660.KS')">SK하이닉스</div>
+      <div class="chip" onclick="quickSelect('035420.KS')">NAVER</div>
+      <div class="chip" onclick="quickSelect('005380.KS')">현대차</div>
+      <div class="chip" onclick="quickSelect('035720.KS')">카카오</div>
+      <div class="chip" onclick="quickSelect('051910.KS')">LG화학</div>
+      <div class="chip" onclick="quickSelect('006400.KS')">삼성SDI</div>
+      <div class="chip" onclick="quickSelect('247540.KQ')">에코프로비엠</div>
+      <div class="chip" onclick="quickSelect('047810.KS')">한국항공우주</div>
+      <div class="chip" onclick="quickSelect('373220.KS')">LG에너지솔루션</div>
+    </div>
+    <div id="analyzeResult"></div>
+  </div>
+
+  <!-- 종목 추천 탭 -->
+  <div class="tab-content" id="tab-scan">
+    <div class="scan-toolbar">
+      <div class="market-tabs">
+        <button class="market-tab active" data-market="all">전체</button>
+        <button class="market-tab" data-market="kospi">코스피</button>
+        <button class="market-tab" data-market="kosdaq">코스닥</button>
+      </div>
+      <div class="scan-meta" id="scanMeta">
+        <span class="dot live"></span>
+        <span>마지막 스캔: -</span>
+      </div>
+    </div>
+    <div id="scanProgress" style="display:none"><div class="progress-bar"><div class="fill" id="progressFill"></div></div></div>
+    <div id="scanStats"></div>
+    <div id="scanResult"><div class="loading">스캔 데이터 로딩 중...</div></div>
+  </div>
+
+  <!-- 포트폴리오 탭 -->
+  <div class="tab-content" id="tab-portfolio">
+    <div id="pfSummary"></div>
+    <div id="pfResult"><div class="loading">로딩 중...</div></div>
+  </div>
+
+  <!-- 매매 기록 탭 -->
+  <div class="tab-content" id="tab-history">
+    <div id="historySummary"></div>
+    <div id="historyResult"><div class="loading">로딩 중...</div></div>
+  </div>
+</div>
+
+<!-- 매수 모달 -->
+<div class="modal-overlay" id="buyModal">
+  <div class="modal-box">
+    <h3>매수 등록</h3>
+    <div class="modal-sub" id="buyModalSub"></div>
+    <div class="modal-field">
+      <label>실제 매수가 (원)</label>
+      <input type="number" id="buyModalPrice" placeholder="실제 구매 가격 입력" />
+      <div class="hint" id="buyModalHint"></div>
+    </div>
+    <div class="modal-field">
+      <label>수량 (주)</label>
+      <input type="number" id="buyModalQty" placeholder="매수 수량 입력" min="1" value="1" />
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeBuyModal()">취소</button>
+      <button class="modal-confirm" onclick="confirmBuy()">매수 등록</button>
+    </div>
+  </div>
+</div>
+
+<!-- 매도 모달 -->
+<div class="modal-overlay" id="sellModal">
+  <div class="modal-box">
+    <h3>매도 등록</h3>
+    <div class="modal-sub" id="sellModalSub"></div>
+    <div class="modal-field">
+      <label>매도가 (원)</label>
+      <input type="number" id="sellModalPrice" placeholder="실제 매도 가격 입력" />
+      <div class="hint" id="sellModalHint"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeSellModal()">취소</button>
+      <button class="modal-confirm sell-confirm" onclick="confirmSell()">매도 확정</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentTab = 'analyze';
+let currentTicker = '';
+let currentMarket = 'all';
+let rsiChart = null;
+
+// 분석 탭: 5초 갱신 / 추천 탭: 60초 갱신
+let analyzeCountdown = 5;
+let scanCountdown = 60;
+let pfCountdown = 10;
+let countdownTimer = null;
+
+const condLabels = {
+  rsi_triggered: 'RSI 극단 구간',
+  band_touch: 'BB 터치/이탈',
+  engulfing_candle: '장악형 캔들',
+  double_pattern: '쌍바닥/쌍봉',
+  macd_confirm: 'MACD 크로스',
+  divergence_detected: '다이버전스',
+};
+
+// ─── 탭 전환 ───
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentTab = tab.dataset.tab;
+    document.getElementById('tab-' + currentTab).classList.add('active');
+    if (currentTab === 'scan') { scanCountdown = 0; }
+    if (currentTab === 'portfolio') { loadPortfolio(); pfCountdown = 10; }
+    if (currentTab === 'history') { loadHistory(); }
+    updateCountdownUI();
+  });
+});
+
+// ─── 마켓 탭 ───
+document.querySelectorAll('.market-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.market-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentMarket = tab.dataset.market;
+    doScan();
+  });
+});
+
+// ─── 카운트다운 ───
+function startCountdown() {
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    if (currentTab === 'analyze') {
+      if (currentTicker) {
+        analyzeCountdown--;
+        if (analyzeCountdown <= 0) { doAnalyze(true); analyzeCountdown = 5; }
+      }
+    } else if (currentTab === 'scan') {
+      scanCountdown--;
+      if (scanCountdown <= 0) { doScan(true); scanCountdown = 60; }
+    } else if (currentTab === 'portfolio') {
+      pfCountdown--;
+      if (pfCountdown <= 0) { loadPortfolio(true); pfCountdown = 10; }
+    }
+    updateCountdownUI();
+  }, 1000);
+}
+
+function updateCountdownUI() {
+  const el = document.getElementById('countdown');
+  el.classList.remove('refreshing');
+  if (currentTab === 'analyze') {
+    if (!currentTicker) el.textContent = '종목 선택 대기';
+    else el.textContent = analyzeCountdown + '초 후 갱신';
+  } else if (currentTab === 'scan') {
+    el.textContent = scanCountdown > 0 ? scanCountdown + '초 후 갱신' : '갱신 중...';
+    if (scanCountdown <= 0) el.classList.add('refreshing');
+  } else if (currentTab === 'portfolio') {
+    el.textContent = pfCountdown + '초 후 갱신';
+  } else if (currentTab === 'history') {
+    el.textContent = '매매 기록';
+  }
+}
+
+// ─── 자동완성 ───
+let acTimeout = null;
+let acSelectedIdx = -1;
+const tickerInput = document.getElementById('tickerInput');
+const acList = document.getElementById('autocompleteList');
+
+tickerInput.addEventListener('input', () => {
+  clearTimeout(acTimeout);
+  const q = tickerInput.value.trim();
+  if (q.length < 1) { acList.classList.remove('show'); return; }
+  acTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const items = await res.json();
+      if (!items.length) { acList.classList.remove('show'); return; }
+      acSelectedIdx = -1;
+      acList.innerHTML = items.map((it, i) =>
+        `<div class="autocomplete-item" data-idx="${i}" onclick="selectAC('${it.ticker}','${it.name.replace(/'/g, "\\'")}')">
+          <span class="ac-name">${it.name}</span>
+          <span class="ac-ticker">${it.ticker}</span>
+        </div>`
+      ).join('');
+      acList.classList.add('show');
+    } catch { acList.classList.remove('show'); }
+  }, 200);
+});
+
+tickerInput.addEventListener('keydown', e => {
+  const items = acList.querySelectorAll('.autocomplete-item');
+  if (!acList.classList.contains('show') || !items.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); acSelectedIdx = Math.min(acSelectedIdx + 1, items.length - 1); updateACSelection(items); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); acSelectedIdx = Math.max(acSelectedIdx - 1, 0); updateACSelection(items); }
+  else if (e.key === 'Enter' && acSelectedIdx >= 0) { e.preventDefault(); items[acSelectedIdx].click(); }
+});
+
+function updateACSelection(items) {
+  items.forEach((el, i) => el.classList.toggle('selected', i === acSelectedIdx));
+  if (acSelectedIdx >= 0) items[acSelectedIdx].scrollIntoView({ block: 'nearest' });
+}
+
+function selectAC(ticker, name) {
+  tickerInput.value = name;
+  tickerInput.dataset.ticker = ticker;
+  acList.classList.remove('show');
+  doAnalyze();
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-box')) acList.classList.remove('show');
+});
+
+// ─── 종목 분석 ───
+function quickSelect(ticker) {
+  document.getElementById('tickerInput').value = ticker;
+  tickerInput.dataset.ticker = ticker;
+  doAnalyze();
+}
+
+async function doAnalyze(silent = false) {
+  let ticker = tickerInput.dataset.ticker || document.getElementById('tickerInput').value.trim();
+  if (!ticker) { if (!silent) showError('종목명을 입력해주세요 (예: 삼성전자)'); return; }
+  currentTicker = ticker;
+  analyzeCountdown = 5;
+  if (!silent) document.getElementById('analyzeResult').innerHTML = '<div class="loading">분석 중...</div>';
+
+  try {
+    const [res, pfRes] = await Promise.all([
+      fetch('/api/analyze?ticker=' + encodeURIComponent(ticker)),
+      fetch('/api/portfolio'),
+    ]);
+    const data = await res.json();
+    if (data.error) { showError(data.error); return; }
+    const pfItems = await pfRes.json();
+    // 이 종목의 보유 내역 찾기
+    data._holdings = pfItems.filter(p => p.ticker === data.ticker);
+    renderAnalysis(data);
+    showAlert(data);
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+    if (data.signal === 'BUY' || data.signal === 'SELL') sendNotification(data);
+  } catch { showError('잠시 후 다시 시도합니다'); }
+}
+
+function showError(msg) {
+  document.getElementById('analyzeResult').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + msg + '</p></div>';
+}
+
+function showAlert(data) {
+  const banner = document.getElementById('alertBanner');
+  if (data.signal === 'BUY') { banner.className = 'alert-banner buy'; banner.textContent = '🟢 매수 신호 포착! ' + data.name; }
+  else if (data.signal === 'SELL') { banner.className = 'alert-banner sell'; banner.textContent = '🔴 매도/탈출 신호! 지금 확인하세요'; }
+  else { banner.className = 'alert-banner'; }
+}
+
+function sendNotification(data) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const title = data.signal === 'BUY' ? '🟢 매수 신호' : '🔴 매도 신호';
+    new Notification(title, { body: data.name + ' (' + data.ticker + ') - RSI ' + data.rsi });
+  }
+}
+
+function renderHoldingsSection(d) {
+  const holdings = d._holdings || [];
+  if (!holdings.length) {
+    // 보유 안 하고 있으면 매수 버튼만
+    return `<div class="holdings-section">
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="buy-btn-inline" onclick="doBuy('${d.ticker}','${(d.name||'').replace(/'/g,"\\'")}',${d.price},${d.stop_loss||'null'},${d.take_profit||'null'},'${d.strategy||'-'}','${d.signal}','${d.data_date||''}')">매수 담기</button>
+      </div>
+    </div>`;
+  }
+
+  const rows = holdings.map(p => {
+    const actualBuy = p.actual_price || p.buy_price;
+    const qty = p.quantity || 1;
+    const pnlTotal = p.pnl_total || 0;
+    const pnlPct = p.pnl_pct || 0;
+    const pnlColor = pnlTotal >= 0 ? '#3fb950' : '#f85149';
+    const pnlSign = pnlTotal >= 0 ? '+' : '';
+    const rowClass = p.status === 'STOPLOSS' ? 'stoploss-hit' : p.status === 'TARGET' ? 'target-hit' : '';
+    const statusLabel = { TARGET: '🎯 목표도달', STOPLOSS: '🚨 손절도달', PROFIT: '수익중', LOSS: '손실중', ERROR: '조회실패' };
+
+    return `<div class="holding-row ${rowClass}">
+      <div class="holding-info">
+        <div class="hi-main">${qty}주 보유 · 매수가 ${actualBuy.toLocaleString()}원</div>
+        <div class="hi-sub">${p.strategy} · ${p.bought_at} · ${statusLabel[p.status] || p.status}</div>
+      </div>
+      <div class="holding-pnl">
+        <div class="hp-val" style="color:${pnlColor}">${p.pnl != null ? pnlSign + pnlTotal.toLocaleString() + '원' : '-'}</div>
+        <div class="hp-sub">${p.pnl_pct != null ? pnlSign + pnlPct + '%' : ''} · 현재가 ${p.current_price ? p.current_price.toLocaleString() : '-'}원</div>
+        <div class="hp-sub" style="font-size:10px;margin-top:2px">체결 ${p.price_fetched_at || '-'}</div>
+      </div>
+      <div class="holding-actions">
+        <button class="sell-btn" onclick="openSellModal('${p.id}','${(p.name||'').replace(/'/g,"\\'")}','${p.ticker}',${p.current_price||0},${actualBuy},${qty})">매도</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="holdings-section">
+    <div class="hs-title">내 보유 현황</div>
+    ${rows}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="buy-btn-inline" onclick="doBuy('${d.ticker}','${(d.name||'').replace(/'/g,"\\'")}',${d.price},${d.stop_loss||'null'},${d.take_profit||'null'},'${d.strategy||'-'}','${d.signal}','${d.data_date||''}')">추가 매수</button>
+    </div>
+  </div>`;
+}
+
+function renderAnalysis(d) {
+  const changeClass = d.change_pct >= 0 ? 'up' : 'down';
+  const changeSign = d.change_pct >= 0 ? '+' : '';
+  const isSell = d.signal === 'SELL';
+  let rsiColor = '#d29922';
+  if (d.rsi <= 30) rsiColor = '#3fb950';
+  else if (d.rsi >= 70) rsiColor = '#f85149';
+
+  const sl = d.stop_loss ? d.stop_loss.toLocaleString() : '-';
+  const tp = d.take_profit ? d.take_profit.toLocaleString() : '-';
+  let rrRatio = '-';
+  if (d.stop_loss && d.take_profit) {
+    const risk = Math.abs(d.price - d.stop_loss);
+    const reward = Math.abs(d.take_profit - d.price);
+    if (risk > 0) rrRatio = '1 : ' + (reward / risk).toFixed(1);
+  }
+
+  document.getElementById('analyzeResult').innerHTML = `
+    <div class="result-card ${isSell ? 'sell-alert' : ''}">
+      ${isSell ? '<div class="sell-warning">⚠️ 매도/탈출 구간 — 보유 중이라면 즉시 점검하세요</div>' : ''}
+      <div class="result-header">
+        <div class="stock-info">
+          <h2>${d.name} <span style="font-size:13px;color:#8b949e">${d.ticker}</span></h2>
+          <span class="price">${d.price.toLocaleString()}원</span>
+          <span class="change ${changeClass}">${changeSign}${d.change_pct}%</span>
+        </div>
+        <div>
+          <span class="signal-badge ${d.signal}">${d.signal}</span>
+          <span class="strategy-tag">${d.strategy}</span>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="label">RSI (14)</div><div class="value" style="color:${rsiColor}">${d.rsi ?? '-'}</div></div>
+        <div class="metric"><div class="label">BB %B</div><div class="value">${d.bb_pct != null ? d.bb_pct + '%' : '-'}</div></div>
+        <div class="metric"><div class="label">MACD</div><div class="value">${d.macd_cross === 'golden' ? '🟢 골든크로스' : d.macd_cross === 'dead' ? '🔴 데드크로스' : d.macd_cross === 'bull' ? '📈 상승' : '📉 하락'}</div></div>
+        <div class="metric"><div class="label">다이버전스</div><div class="value">${d.divergence}</div></div>
+        <div class="metric"><div class="label">밴드 하단</div><div class="value">${d.bb_lower ? d.bb_lower.toLocaleString() : '-'}</div></div>
+        <div class="metric"><div class="label">밴드 상단</div><div class="value">${d.bb_upper ? d.bb_upper.toLocaleString() : '-'}</div></div>
+      </div>
+      <div class="rsi-gauge">
+        <div class="rsi-val">RSI ${d.rsi ?? '-'}</div>
+        <div class="bar-bg">
+          <div class="bar-fill" style="width:${d.rsi ?? 0}%;background:${rsiColor}"></div>
+          <div class="mark mark-30"></div><div class="mark mark-70"></div>
+        </div>
+        <div class="markers"><span>0</span><span style="position:absolute;left:28%">30</span><span style="position:absolute;left:68%">70</span><span style="position:absolute;right:0">100</span></div>
+      </div>
+      <div class="conditions">
+        ${Object.entries(d.conditions).map(([k, v]) => `<div class="cond-item ${v ? 'met' : 'unmet'}"><span class="icon">${v ? '✓' : '✗'}</span><span>${condLabels[k] || k}</span></div>`).join('')}
+      </div>
+      <div class="targets">
+        <div class="target-box sl"><div class="label">손절가</div><div class="value">${sl}</div></div>
+        <div class="target-box tp"><div class="label">목표가</div><div class="value">${tp}</div></div>
+        <div class="target-box rr"><div class="label">손익비</div><div class="value">${rrRatio}</div></div>
+      </div>
+      ${renderHoldingsSection(d)}
+      <div class="chart-container"><canvas id="rsiChart"></canvas></div>
+      <div class="timestamp">데이터: ${d.data_date || '-'} · 조회: ${d.timestamp}</div>
+    </div>`;
+  renderRSIChart(d.rsi_history);
+}
+
+function renderRSIChart(data) {
+  const ctx = document.getElementById('rsiChart');
+  if (!ctx) return;
+  if (rsiChart) rsiChart.destroy();
+  rsiChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: data.map((_, i) => i + 1), datasets: [{ label: 'RSI', data, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.1)', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: { y: { min: 0, max: 100, grid: { color: '#21262d' }, ticks: { color: '#8b949e', stepSize: 10 } }, x: { grid: { display: false }, ticks: { color: '#484f58', maxTicksLimit: 10 } } },
+      animation: { duration: 300 },
+    },
+    plugins: [{ id: 'bands', beforeDraw(chart) {
+      const { ctx: c, chartArea: { left, right }, scales: { y } } = chart;
+      const y30 = y.getPixelForValue(30), y0 = y.getPixelForValue(0), y70 = y.getPixelForValue(70), y100 = y.getPixelForValue(100);
+      c.fillStyle = 'rgba(35,134,54,.06)'; c.fillRect(left, y30, right - left, y0 - y30);
+      c.fillStyle = 'rgba(218,54,51,.06)'; c.fillRect(left, y100, right - left, y70 - y100);
+      c.strokeStyle = '#238636'; c.lineWidth = 1; c.setLineDash([4, 4]);
+      c.beginPath(); c.moveTo(left, y30); c.lineTo(right, y30); c.stroke();
+      c.strokeStyle = '#da3633'; c.beginPath(); c.moveTo(left, y70); c.lineTo(right, y70); c.stroke();
+      c.setLineDash([]);
+    }}]
+  });
+}
+
+// ─── 종목 스캔 ───
+async function doScan(silent = false) {
+  if (!silent) document.getElementById('scanResult').innerHTML = '<div class="loading">캐시 데이터 로딩 중...</div>';
+  try {
+    const marketParam = currentMarket === 'all' ? '' : '?market=' + currentMarket;
+    const res = await fetch('/api/scan' + marketParam);
+    const data = await res.json();
+    if (data.error) { document.getElementById('scanResult').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + data.error + '</p></div>'; return; }
+    renderScanResult(data);
+  } catch { document.getElementById('scanResult').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>잠시 후 다시 시도합니다</p></div>'; }
+}
+
+function renderScanResult(data) {
+  const items = data.results || [];
+  const meta = document.getElementById('scanMeta');
+  const dotClass = data.scanning ? 'scanning' : 'live';
+  const statusText = data.scanning
+    ? `스캔 중... (${data.progress.done}/${data.progress.total})`
+    : `마지막 스캔: ${data.lastScan || '-'}`;
+  meta.innerHTML = `<span class="dot ${dotClass}"></span><span>${statusText}</span>`;
+
+  // 프로그레스 바
+  const progEl = document.getElementById('scanProgress');
+  if (data.scanning && data.progress.total > 0) {
+    progEl.style.display = 'block';
+    document.getElementById('progressFill').style.width = (data.progress.done / data.progress.total * 100) + '%';
+  } else {
+    progEl.style.display = 'none';
+  }
+
+  // 통계
+  const buyCount = items.filter(i => i.signal === 'BUY').length;
+  const sellCount = items.filter(i => i.signal === 'SELL').length;
+  const watchCount = items.filter(i => i.signal === 'WATCH').length;
+  const totalScanned = (data.totalStocks?.kospi || 0) + (data.totalStocks?.kosdaq || 0);
+  document.getElementById('scanStats').innerHTML = `
+    <div class="scan-stats">
+      <div class="stat-box buy"><div class="num">${buyCount}</div><div class="lbl">BUY 신호</div></div>
+      <div class="stat-box sell"><div class="num">${sellCount}</div><div class="lbl">SELL 신호</div></div>
+      <div class="stat-box watch"><div class="num">${watchCount}</div><div class="lbl">WATCH 관찰</div></div>
+      <div class="stat-box"><div class="num">${totalScanned}</div><div class="lbl">스캔 종목</div></div>
+    </div>`;
+
+  if (!items.length) {
+    document.getElementById('scanResult').innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>${data.scanning ? '첫 스캔 진행 중입니다... 잠시 기다려주세요' : '현재 신호 종목이 없습니다'}</p></div>`;
+    return;
+  }
+
+  // 알림
+  const banner = document.getElementById('alertBanner');
+  const sellItems = items.filter(d => d.signal === 'SELL');
+  const buyItems = items.filter(d => d.signal === 'BUY');
+  if (sellItems.length) { banner.className = 'alert-banner sell'; banner.textContent = '🔴 매도/탈출 신호! ' + sellItems.map(d => d.name).join(', '); sellItems.forEach(d => sendNotification(d)); }
+  else if (buyItems.length) { banner.className = 'alert-banner buy'; banner.textContent = '🟢 매수 신호 포착! ' + buyItems.map(d => d.name).join(', '); buyItems.forEach(d => sendNotification(d)); }
+  else { banner.className = 'alert-banner'; }
+
+  // 목록
+  const html = '<div class="scan-list">' + items.map((d, idx) => {
+    const changeClass = d.change_pct >= 0 ? 'up' : 'down';
+    const changeSign = d.change_pct >= 0 ? '+' : '';
+    const condsMet = Object.values(d.conditions).filter(Boolean).length;
+    const itemClass = d.signal === 'SELL' ? 'sell-item' : d.signal === 'BUY' ? 'buy-item' : '';
+    const marketLabel = d.market === 'kospi' ? '코스피' : '코스닥';
+    let rsiColor = '#d29922';
+    if (d.rsi <= 30) rsiColor = '#3fb950';
+    else if (d.rsi >= 70) rsiColor = '#f85149';
+
+    const sl = d.stop_loss ? d.stop_loss.toLocaleString() : '-';
+    const tp = d.take_profit ? d.take_profit.toLocaleString() : '-';
+    let rr = '-';
+    if (d.stop_loss && d.take_profit) {
+      const risk = Math.abs(d.price - d.stop_loss);
+      const reward = Math.abs(d.take_profit - d.price);
+      if (risk > 0) rr = '1:' + (reward / risk).toFixed(1);
+    }
+
+    return `
+      <div class="scan-item ${itemClass}" id="scan-${idx}">
+        <div class="scan-item-header" onclick="toggleDetail(${idx})">
+          <div class="scan-left">
+            <div class="badge"><span class="signal-badge sm ${d.signal}">${d.signal}</span></div>
+            <div class="info">
+              <h3>${d.name} <span style="font-size:11px;color:#484f58">${marketLabel}</span></h3>
+              <div class="sub">${d.ticker} · ${d.strategy !== '-' ? d.strategy : ''} ${d.divergence !== '없음' ? '· ' + d.divergence : ''} ${d.macd_cross === 'golden' ? '· MACD↑' : d.macd_cross === 'dead' ? '· MACD↓' : ''}</div>
+            </div>
+          </div>
+          <div class="scan-right">
+            <span class="price">${d.price.toLocaleString()}원</span>
+            <span class="change ${changeClass}" style="font-size:12px;margin-left:6px">${changeSign}${d.change_pct}%</span>
+            <div class="rsi">RSI <span style="color:${rsiColor}">${d.rsi}</span> · 조건 ${condsMet}/6</div>
+            <span class="arrow">▼</span>
+          </div>
+        </div>
+        <div class="scan-detail">
+          <div class="detail-grid">
+            <div class="detail-box"><div class="dl">RSI</div><div class="dv" style="color:${rsiColor}">${d.rsi}</div></div>
+            <div class="detail-box"><div class="dl">BB %B</div><div class="dv">${d.bb_pct != null ? d.bb_pct + '%' : '-'}</div></div>
+            <div class="detail-box"><div class="dl">MACD</div><div class="dv">${d.macd_cross === 'golden' ? '🟢 골든' : d.macd_cross === 'dead' ? '🔴 데드' : d.macd_cross === 'bull' ? '📈' : '📉'}</div></div>
+          </div>
+          <div class="detail-conditions">
+            ${Object.entries(d.conditions).map(([k, v]) => `<span class="detail-cond ${v ? 'met' : 'unmet'}">${v ? '✓' : '✗'} ${condLabels[k] || k}</span>`).join('')}
+          </div>
+          <div class="detail-targets">
+            <div class="dt"><div class="dl">손절가</div><div class="dv" style="color:#f85149">${sl}</div></div>
+            <div class="dt"><div class="dl">목표가</div><div class="dv" style="color:#3fb950">${tp}</div></div>
+            <div class="dt"><div class="dl">손익비</div><div class="dv" style="color:#d29922">${rr}</div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+            <span style="font-size:11px;color:#484f58">데이터: ${d.data_date || '-'}</span>
+            <div>
+              <button class="buy-btn-inline" onclick="event.stopPropagation();doBuy('${d.ticker}','${(d.name||'').replace(/'/g,"\\'")}',${d.price},${d.stop_loss||'null'},${d.take_profit||'null'},'${d.strategy}','${d.signal}','${d.data_date||''}')">매수 담기</button>
+              <button class="detail-btn" style="margin:0" onclick="goAnalyze('${d.ticker}','${(d.name||'').replace(/'/g,"\\'")}')">상세 차트 →</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('') + '</div>';
+
+  document.getElementById('scanResult').innerHTML = html;
+}
+
+function toggleDetail(idx) {
+  const el = document.getElementById('scan-' + idx);
+  if (el) el.classList.toggle('open');
+}
+
+function goAnalyze(ticker, name) {
+  document.getElementById('tickerInput').value = name || ticker;
+  tickerInput.dataset.ticker = ticker;
+  document.querySelectorAll('.tab')[0].click();
+  doAnalyze();
+}
+
+// ─── 포트폴리오 ───
+
+// 매수 모달 상태
+let pendingBuy = null;
+
+function openBuyModal(ticker, name, price, sl, tp, strategy, signal, dataDate) {
+  pendingBuy = { ticker, name, price, sl, tp, strategy, signal, dataDate };
+  document.getElementById('buyModalSub').textContent = `${name} (${ticker}) · 분석가 ${price.toLocaleString()}원`;
+  document.getElementById('buyModalPrice').value = price;
+  document.getElementById('buyModalQty').value = 1;
+  document.getElementById('buyModalHint').textContent = `분석 시점 가격: ${price.toLocaleString()}원 — 실제 매수한 가격으로 변경하세요`;
+  document.getElementById('buyModal').classList.add('open');
+  document.getElementById('buyModalPrice').focus();
+}
+
+function closeBuyModal() {
+  document.getElementById('buyModal').classList.remove('open');
+  pendingBuy = null;
+}
+
+async function confirmBuy() {
+  if (!pendingBuy) return;
+  const actualPrice = parseInt(document.getElementById('buyModalPrice').value) || pendingBuy.price;
+  const quantity = parseInt(document.getElementById('buyModalQty').value) || 1;
+  if (quantity < 1) { alert('수량은 1주 이상이어야 합니다'); return; }
+  if (actualPrice <= 0) { alert('매수가를 입력하세요'); return; }
+
+  try {
+    await fetch('/api/portfolio/buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker: pendingBuy.ticker,
+        name: pendingBuy.name,
+        price: pendingBuy.price,
+        actual_price: actualPrice,
+        quantity,
+        stop_loss: pendingBuy.sl,
+        take_profit: pendingBuy.tp,
+        strategy: pendingBuy.strategy,
+        signal: pendingBuy.signal,
+        data_date: pendingBuy.dataDate,
+      }),
+    });
+    closeBuyModal();
+    document.querySelectorAll('.tab')[2].click();
+  } catch { alert('매수 등록 실패'); }
+}
+
+// 매도 모달 상태
+let pendingSell = null;
+
+function openSellModal(id, name, ticker, currentPrice, actualPrice, qty) {
+  pendingSell = { id, name, ticker, currentPrice, actualPrice, qty };
+  document.getElementById('sellModalSub').textContent = `${name} (${ticker}) · ${qty}주 보유 · 매수가 ${actualPrice.toLocaleString()}원`;
+  document.getElementById('sellModalPrice').value = currentPrice || '';
+  document.getElementById('sellModalHint').textContent = currentPrice ? `현재가: ${currentPrice.toLocaleString()}원 — 실제 매도한 가격으로 변경하세요` : '매도 가격을 입력하세요';
+  document.getElementById('sellModal').classList.add('open');
+  document.getElementById('sellModalPrice').focus();
+}
+
+function closeSellModal() {
+  document.getElementById('sellModal').classList.remove('open');
+  pendingSell = null;
+}
+
+async function confirmSell() {
+  if (!pendingSell) return;
+  const sellPrice = parseInt(document.getElementById('sellModalPrice').value);
+  if (!sellPrice || sellPrice <= 0) { alert('매도가를 입력하세요'); return; }
+
+  try {
+    await fetch('/api/portfolio/sell', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: pendingSell.id, sell_price: sellPrice }),
+    });
+    closeSellModal();
+    // 현재 탭에 따라 갱신
+    if (currentTab === 'analyze' && currentTicker) doAnalyze();
+    else loadPortfolio();
+  } catch { alert('매도 처리 실패'); }
+}
+
+// 기존 doBuy는 모달로 전환 (하위 호환)
+function doBuy(ticker, name, price, sl, tp, strategy, signal, dataDate) {
+  openBuyModal(ticker, name, price, sl, tp, strategy, signal, dataDate);
+}
+
+async function loadPortfolio(silent = false) {
+  if (!silent) document.getElementById('pfResult').innerHTML = '<div class="loading">현재가 조회 중...</div>';
+  try {
+    const res = await fetch('/api/portfolio');
+    const items = await res.json();
+    renderPortfolio(items);
+  } catch { document.getElementById('pfResult').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>조회 실패</p></div>'; }
+}
+
+async function doDelete(id) {
+  if (!confirm('이 기록을 완전히 삭제하시겠습니까?')) return;
+  await fetch('/api/portfolio/' + id, { method: 'DELETE' });
+  loadPortfolio();
+}
+
+function renderPortfolio(items) {
+  if (!items.length) {
+    document.getElementById('pfSummary').innerHTML = '';
+    document.getElementById('pfResult').innerHTML = '<div class="empty-state"><div class="icon">📋</div><p>보유 종목이 없습니다</p><p style="font-size:13px;margin-top:8px;color:#484f58">종목 추천에서 매수 담기를 눌러보세요</p></div>';
+    return;
+  }
+
+  // 요약 - 총 손익은 수량 반영
+  const totalPnlTotal = items.reduce((s, i) => s + (i.pnl_total || 0), 0);
+  const totalInvested = items.reduce((s, i) => s + ((i.actual_price || i.buy_price) * (i.quantity || 1)), 0);
+  const alertCount = items.filter(i => i.status === 'STOPLOSS' || i.status === 'TARGET').length;
+  const pnlClass = totalPnlTotal >= 0 ? 'profit' : 'loss';
+  const fetchTime = items[0]?.price_fetched_at || '';
+  document.getElementById('pfSummary').innerHTML = `
+    <div class="pf-summary">
+      <div class="stat-box"><div class="num">${items.length}</div><div class="lbl">보유 종목</div></div>
+      <div class="stat-box"><div class="num ${pnlClass}">${totalPnlTotal >= 0 ? '+' : ''}${totalPnlTotal.toLocaleString()}원</div><div class="lbl">총 평가손익</div></div>
+      <div class="stat-box"><div class="num" style="color:${alertCount ? '#f0883e' : '#8b949e'}">${alertCount}</div><div class="lbl">알림 종목</div></div>
+    </div>
+    <div style="text-align:right;font-size:11px;color:#6e7681;margin-top:6px">📡 마지막 체결: ${fetchTime || '-'}</div>`;
+
+  // 카드
+  document.getElementById('pfResult').innerHTML = '<div class="pf-list">' + items.map(p => {
+    const cardClass = p.status === 'TARGET' ? 'target-hit' : p.status === 'STOPLOSS' ? 'stoploss-hit' : '';
+    const actualBuy = p.actual_price || p.buy_price;
+    const qty = p.quantity || 1;
+    const pnlTotal = p.pnl_total || 0;
+    const pnlColor = pnlTotal >= 0 ? '#3fb950' : '#f85149';
+    const pnlSign = pnlTotal >= 0 ? '+' : '';
+    const cur = p.current_price ? p.current_price.toLocaleString() : '-';
+    const sl = p.stop_loss ? p.stop_loss.toLocaleString() : '-';
+    const tp = p.take_profit ? p.take_profit.toLocaleString() : '-';
+
+    // 가격 바
+    let barAreaHtml = '<div class="pf-bar-area"><div style="text-align:center;color:#484f58;font-size:12px">손절/목표 미설정</div></div>';
+    if (p.stop_loss && p.take_profit && p.current_price) {
+      const range = p.take_profit - p.stop_loss;
+      if (range > 0) {
+        const curPct = Math.max(0, Math.min(100, ((p.current_price - p.stop_loss) / range) * 100));
+        const buyPct = Math.max(0, Math.min(100, ((actualBuy - p.stop_loss) / range) * 100));
+        const fillColor = p.current_price >= actualBuy ? '#3fb950' : '#f85149';
+        barAreaHtml = `
+          <div class="pf-bar-area">
+            <div class="pf-bar-wrap">
+              <div class="pf-cur-label" style="left:${curPct}%;color:${fillColor}">${cur}원</div>
+              <div class="pf-bar">
+                <div class="pf-bar-fill" style="width:${Math.max(curPct,1)}%;background:${fillColor}"></div>
+                <div class="pf-marker sl" style="left:0"></div>
+                <div class="pf-marker tp" style="left:100%"></div>
+                <div class="pf-marker cur" style="left:${curPct}%"></div>
+                <div style="position:absolute;top:-3px;left:${buyPct}%;width:2px;height:14px;background:#d29922;border-radius:1px" title="매수가"></div>
+              </div>
+            </div>
+            <div class="pf-bar-labels">
+              <span class="sl-label">손절 ${sl}</span>
+              <span style="color:#d29922;font-size:10px">▲ 매수</span>
+              <span class="tp-label">목표 ${tp}</span>
+            </div>
+            <div class="pf-bar-time">체결 ${p.price_fetched_at || '-'}</div>
+          </div>`;
+      }
+    } else if (p.current_price) {
+      barAreaHtml = `
+        <div class="pf-bar-area">
+          <div style="text-align:center">
+            <div style="font-size:20px;font-weight:700;color:${pnlColor}">${cur}원</div>
+            <div class="pf-bar-time" style="margin-top:4px">체결 ${p.price_fetched_at || '-'}</div>
+          </div>
+        </div>`;
+    }
+
+    const statusLabel = { TARGET: '🎯 목표 도달', STOPLOSS: '🚨 손절 도달', PROFIT: '수익 중', LOSS: '손실 중', ERROR: '조회 실패' };
+
+    return `
+      <div class="pf-card ${cardClass}">
+        ${p.status === 'STOPLOSS' ? '<div class="sell-warning" style="margin-bottom:12px">🚨 손절가에 도달했습니다! 매도를 검토하세요</div>' : ''}
+        ${p.status === 'TARGET' ? '<div style="background:rgba(35,134,54,.15);border:1px solid #238636;border-radius:8px;padding:10px 14px;margin-bottom:12px;color:#3fb950;font-weight:600">🎯 목표가에 도달했습니다! 수익 실현을 검토하세요</div>' : ''}
+        <div class="pf-top">
+          <div>
+            <h3>${p.name} <span style="font-size:11px;color:#8b949e">${p.ticker}</span></h3>
+            <div class="sub">${p.strategy} · ${qty}주 · 매수일 ${p.bought_at}</div>
+          </div>
+          <span class="pf-status ${p.status}">${statusLabel[p.status] || p.status}</span>
+        </div>
+        <div class="pf-body">
+          <div class="pf-table">
+            <table>
+              <tr><td>실매수가</td><td>${actualBuy.toLocaleString()}원</td></tr>
+              <tr><td>수량</td><td>${qty}주</td></tr>
+              <tr><td>투자금</td><td>${(actualBuy * qty).toLocaleString()}원</td></tr>
+              <tr><td>평가손익</td><td style="color:${pnlColor}">${p.pnl != null ? pnlSign + pnlTotal.toLocaleString() + '원' : '-'}</td></tr>
+              <tr><td>수익률</td><td style="color:${pnlColor}">${p.pnl_pct != null ? pnlSign + p.pnl_pct + '%' : '-'}</td></tr>
+            </table>
+          </div>
+          ${barAreaHtml}
+        </div>
+        <div class="pf-actions">
+          <span class="pf-date">데이터: ${p.data_date || '-'}</span>
+          <div>
+            <button class="detail-btn" onclick="goAnalyze('${p.ticker}','${(p.name||'').replace(/'/g,"\\'")}')">분석 →</button>
+            <button class="sell-btn" onclick="openSellModal('${p.id}','${(p.name||'').replace(/'/g,"\\'")}','${p.ticker}',${p.current_price||0},${actualBuy},${qty})">매도 기록</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('') + '</div>';
+}
+
+// ─── 매매 기록 ───
+async function loadHistory() {
+  document.getElementById('historyResult').innerHTML = '<div class="loading">매매 기록 로딩 중...</div>';
+  try {
+    const res = await fetch('/api/portfolio/history');
+    const items = await res.json();
+    renderHistory(items);
+  } catch { document.getElementById('historyResult').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>조회 실패</p></div>'; }
+}
+
+function renderHistory(items) {
+  if (!items.length) {
+    document.getElementById('historySummary').innerHTML = '';
+    document.getElementById('historyResult').innerHTML = '<div class="empty-state"><div class="icon">📝</div><p>매매 기록이 없습니다</p><p style="font-size:13px;margin-top:8px;color:#484f58">포트폴리오에서 매도하면 기록됩니다</p></div>';
+    return;
+  }
+
+  // 요약
+  const totalRealized = items.reduce((s, i) => s + (i.realized_pnl || 0), 0);
+  const winCount = items.filter(i => (i.realized_pnl || 0) > 0).length;
+  const winRate = items.length > 0 ? Math.round((winCount / items.length) * 100) : 0;
+  const pnlClass = totalRealized >= 0 ? 'profit' : 'loss';
+
+  document.getElementById('historySummary').innerHTML = `
+    <div class="h-summary">
+      <div class="stat-box"><div class="num">${items.length}</div><div class="lbl">총 매매</div></div>
+      <div class="stat-box"><div class="num ${pnlClass}">${totalRealized >= 0 ? '+' : ''}${totalRealized.toLocaleString()}원</div><div class="lbl">실현 손익</div></div>
+      <div class="stat-box"><div class="num" style="color:${winRate >= 50 ? '#3fb950' : '#f85149'}">${winRate}%</div><div class="lbl">승률 (${winCount}/${items.length})</div></div>
+    </div>`;
+
+  document.getElementById('historyResult').innerHTML = '<div class="history-list">' + items.map(h => {
+    const qty = h.quantity || 1;
+    const actualBuy = h.actual_price || h.buy_price;
+    const sellPrice = h.sell_price || 0;
+    const realPnl = h.realized_pnl || 0;
+    const realPnlPct = h.realized_pnl_pct || 0;
+    const isProfit = realPnl >= 0;
+    const pnlColor = isProfit ? '#3fb950' : '#f85149';
+    const pnlSign = isProfit ? '+' : '';
+
+    return `
+      <div class="history-card">
+        <div class="h-top">
+          <div>
+            <h3>${h.name} <span style="font-size:11px;color:#8b949e">${h.ticker}</span></h3>
+            <div style="font-size:11px;color:#8b949e;margin-top:2px">${h.strategy} · ${qty}주</div>
+          </div>
+          <span class="h-result ${isProfit ? 'profit' : 'loss'}">${pnlSign}${realPnl.toLocaleString()}원 (${pnlSign}${realPnlPct}%)</span>
+        </div>
+        <div class="h-prices">
+          <div class="hp"><div class="hl">매수가</div><div class="hv">${actualBuy.toLocaleString()}</div></div>
+          <div class="hp"><div class="hl">매도가</div><div class="hv" style="color:${pnlColor}">${sellPrice ? sellPrice.toLocaleString() : '-'}</div></div>
+          <div class="hp"><div class="hl">수량</div><div class="hv">${qty}주</div></div>
+          <div class="hp"><div class="hl">주당 손익</div><div class="hv" style="color:${pnlColor}">${sellPrice ? pnlSign + (sellPrice - actualBuy).toLocaleString() : '-'}</div></div>
+        </div>
+        <div class="h-dates">
+          <span>매수: ${h.bought_at || '-'}</span>
+          <span>매도: ${h.sold_at || '-'}</span>
+        </div>
+      </div>`;
+  }).join('') + '</div>';
+}
+
+// 엔터키 (자동완성이 열려있지 않을 때만)
+document.getElementById('tickerInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !acList.classList.contains('show')) doAnalyze();
+});
+
+// 모달 ESC 닫기, 모달 바깥 클릭 닫기
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeBuyModal(); closeSellModal(); }
+});
+document.getElementById('buyModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeBuyModal(); });
+document.getElementById('sellModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSellModal(); });
+
+// 매수모달 엔터키
+document.getElementById('buyModalQty').addEventListener('keydown', e => { if (e.key === 'Enter') confirmBuy(); });
+document.getElementById('buyModalPrice').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('buyModalQty').focus(); });
+document.getElementById('sellModalPrice').addEventListener('keydown', e => { if (e.key === 'Enter') confirmSell(); });
+
+// 시작
+startCountdown();
+updateCountdownUI();
+</script>
+</body>
+</html>

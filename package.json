@@ -1,0 +1,12 @@
+{
+  "name": "krx-rsi-agent",
+  "version": "1.0.0",
+  "description": "KRX RSI 투자 에이전트 웹서비스",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

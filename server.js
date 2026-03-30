@@ -1,7 +1,19 @@
 const express = require('express');
 const path = require('path');
+const webpush = require('web-push');
 const app = express();
 const PORT = 9090;
+
+// ─── VAPID 키 (웹 푸시) ───
+const VAPID_PUBLIC = 'BO8ueEL63Yj9I3HHI-IlA1hGH3sV1eFIr-pWlfufKnLwCypC5wkS6PQQlEvUP1F9UcDOUBFJ-bDDY3ad2iazFPo';
+const VAPID_PRIVATE = 'vFeyMgRduA7Qh-FulqSLygBZbU5RPrY0Sdc41BtY5RQ';
+webpush.setVapidDetails('mailto:stock@local.dev', VAPID_PUBLIC, VAPID_PRIVATE);
+
+// 푸시 구독 저장 (메모리 + 파일)
+const SUBS_FILE = path.join(__dirname, 'push_subscriptions.json');
+let pushSubscriptions = [];
+try { pushSubscriptions = JSON.parse(require('fs').readFileSync(SUBS_FILE, 'utf8')); } catch {}
+function saveSubs() { require('fs').writeFileSync(SUBS_FILE, JSON.stringify(pushSubscriptions, null, 2)); }
 
 // ─── Yahoo Finance 데이터 fetch ───
 async function fetchYahooData(ticker, period = '6mo', interval = '1d') {
@@ -949,6 +961,103 @@ app.delete('/api/portfolio/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── 웹 푸시 API ───
+
+// VAPID 공개키 전달
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ key: VAPID_PUBLIC });
+});
+
+// 푸시 구독 등록
+app.post('/api/push/subscribe', (req, res) => {
+  const sub = req.body;
+  if (!sub || !sub.endpoint) return res.status(400).json({ error: '잘못된 구독 정보' });
+  // 중복 제거
+  pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== sub.endpoint);
+  pushSubscriptions.push(sub);
+  saveSubs();
+  console.log(`📱 푸시 구독 등록 (총 ${pushSubscriptions.length}개)`);
+  res.json({ ok: true });
+});
+
+// 푸시 구독 해제
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { endpoint } = req.body;
+  pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== endpoint);
+  saveSubs();
+  res.json({ ok: true });
+});
+
+// 모든 구독자에게 푸시 보내기
+async function sendPushToAll(title, body) {
+  if (!pushSubscriptions.length) { console.log('⚠️ 등록된 푸시 구독 없음'); return; }
+  const payload = JSON.stringify({ title, body });
+  const expired = [];
+  await Promise.allSettled(pushSubscriptions.map(async (sub, i) => {
+    try {
+      await webpush.sendNotification(sub, payload);
+    } catch (err) {
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        expired.push(i);
+      }
+      console.error('푸시 발송 실패:', err.statusCode || err.message);
+    }
+  }));
+  // 만료된 구독 정리
+  if (expired.length) {
+    pushSubscriptions = pushSubscriptions.filter((_, i) => !expired.includes(i));
+    saveSubs();
+  }
+}
+
+// 테스트 푸시 발송
+app.post('/api/push/test', async (req, res) => {
+  await sendPushToAll('🔔 테스트 알림', '푸시 알림이 정상 작동합니다!');
+  res.json({ ok: true, subscribers: pushSubscriptions.length });
+});
+
+// ─── 포트폴리오 가격 모니터링 (손절/목표 알림) ───
+const alertedItems = new Set(); // 중복 알림 방지 (세션 동안)
+
+async function monitorPortfolio() {
+  const portfolio = loadPortfolio().filter(p => p.status !== 'sold');
+  if (!portfolio.length || !pushSubscriptions.length) return;
+
+  const codes = [...new Set(portfolio.map(p => tickerToCode(p.ticker)))];
+  const prices = await fetchNaverPrices(codes);
+
+  for (const item of portfolio) {
+    const code = tickerToCode(item.ticker);
+    const priceData = prices[code];
+    if (!priceData || !priceData.price) continue;
+
+    const currentPrice = priceData.price;
+    const actualBuy = item.actual_price || item.buy_price;
+    const name = item.name || code;
+    const alertKey = item.id;
+
+    // 손절가 도달
+    if (item.stop_loss && currentPrice <= item.stop_loss && !alertedItems.has(alertKey + '_SL')) {
+      alertedItems.add(alertKey + '_SL');
+      const pnl = Math.round((currentPrice - actualBuy) / actualBuy * 100);
+      await sendPushToAll(
+        `🚨 손절가 도달! ${name}`,
+        `현재가 ${currentPrice.toLocaleString()}원 ≤ 손절가 ${item.stop_loss.toLocaleString()}원 (${pnl}%)`
+      );
+    }
+
+    // 목표가 도달
+    if (item.take_profit && currentPrice >= item.take_profit && !alertedItems.has(alertKey + '_TP')) {
+      alertedItems.add(alertKey + '_TP');
+      const pnl = Math.round((currentPrice - actualBuy) / actualBuy * 100);
+      await sendPushToAll(
+        `🎯 목표가 도달! ${name}`,
+        `현재가 ${currentPrice.toLocaleString()}원 ≥ 목표가 ${item.take_profit.toLocaleString()}원 (+${pnl}%)`
+      );
+    }
+  }
+}
+
 // ─── 서버 시작 ───
 
 app.listen(PORT, async () => {
@@ -962,4 +1071,8 @@ app.listen(PORT, async () => {
 
   // 10분마다 반복 스캔
   setInterval(runBackgroundScan, 10 * 60 * 1000);
+
+  // 30초마다 포트폴리오 모니터링 (손절/목표 알림)
+  setInterval(monitorPortfolio, 30 * 1000);
+  console.log('📱 포트폴리오 모니터링 시작 (30초 간격)');
 });

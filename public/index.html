@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#161b22">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <title>KRX RSI 투자 에이전트</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -12,7 +17,12 @@ body { font-family: -apple-system, 'Pretendard', sans-serif; background:#0f1117;
 .header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; background:#161b22; border-bottom:1px solid #30363d; }
 .header h1 { font-size:20px; font-weight:700; }
 .header h1 span { color:#58a6ff; }
-.header-right { display:flex; align-items:center; gap:12px; }
+.header-right { display:flex; align-items:center; gap:8px; }
+.push-btn { background:none; border:1px solid #30363d; border-radius:8px; padding:6px 10px; font-size:16px; cursor:pointer; transition:all .2s; }
+.push-btn.on { border-color:#3fb950; background:rgba(63,185,80,.15); }
+.push-test-btn { background:#21262d; border:1px solid #30363d; border-radius:8px; padding:6px 12px; font-size:12px; color:#8b949e; cursor:pointer; transition:all .2s; }
+.push-test-btn:hover { background:#30363d; color:#e1e4e8; }
+.push-status { font-size:11px; color:#8b949e; }
 .countdown { font-size:13px; color:#8b949e; background:#21262d; padding:6px 14px; border-radius:20px; }
 .countdown.refreshing { color:#f0883e; }
 
@@ -279,6 +289,8 @@ body { font-family: -apple-system, 'Pretendard', sans-serif; background:#0f1117;
 <div class="header">
   <h1>📊 KRX <span>RSI</span> 투자 에이전트</h1>
   <div class="header-right">
+    <button class="push-btn" id="pushToggle" onclick="togglePush()" title="푸시 알림">🔕</button>
+    <button class="push-test-btn" id="pushTestBtn" onclick="testPush()" title="테스트 알림 발송">📤 테스트</button>
     <div class="countdown" id="countdown">-</div>
   </div>
 </div>
@@ -1124,7 +1136,100 @@ document.getElementById('buyModalQty').addEventListener('keydown', e => { if (e.
 document.getElementById('buyModalPrice').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('buyModalQty').focus(); });
 document.getElementById('sellModalPrice').addEventListener('keydown', e => { if (e.key === 'Enter') confirmSell(); });
 
+// ─── PWA 서비스워커 + 웹 푸시 ───
+let swReg = null;
+let pushSub = null;
+
+async function initServiceWorker() {
+  if (!('serviceWorker' in navigator)) { console.log('SW 미지원'); return; }
+  try {
+    swReg = await navigator.serviceWorker.register('/sw.js');
+    console.log('✅ Service Worker 등록 완료');
+    // 기존 구독 확인
+    pushSub = await swReg.pushManager.getSubscription();
+    updatePushUI();
+  } catch (err) {
+    console.error('SW 등록 실패:', err);
+  }
+}
+
+function updatePushUI() {
+  const btn = document.getElementById('pushToggle');
+  const testBtn = document.getElementById('pushTestBtn');
+  if (pushSub) {
+    btn.textContent = '🔔';
+    btn.classList.add('on');
+    btn.title = '푸시 알림 켜짐 (클릭하여 끄기)';
+    testBtn.style.display = '';
+  } else {
+    btn.textContent = '🔕';
+    btn.classList.remove('on');
+    btn.title = '푸시 알림 꺼짐 (클릭하여 켜기)';
+    testBtn.style.display = 'none';
+  }
+}
+
+async function togglePush() {
+  if (!swReg) { alert('서비스워커가 준비되지 않았습니다. 페이지를 새로고침해주세요.'); return; }
+
+  if (pushSub) {
+    // 구독 해제
+    await pushSub.unsubscribe();
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: pushSub.endpoint })
+    });
+    pushSub = null;
+    updatePushUI();
+    return;
+  }
+
+  // 구독 등록
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('알림 권한이 거부되었습니다. 설정에서 허용해주세요.'); return; }
+
+    const res = await fetch('/api/push/vapid-key');
+    const { key } = await res.json();
+
+    pushSub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key)
+    });
+
+    await fetch('/api/push/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pushSub.toJSON())
+    });
+
+    updatePushUI();
+  } catch (err) {
+    console.error('푸시 구독 실패:', err);
+    alert('푸시 구독 실패: ' + err.message);
+  }
+}
+
+async function testPush() {
+  try {
+    const res = await fetch('/api/push/test', { method: 'POST' });
+    const data = await res.json();
+    if (data.subscribers === 0) alert('등록된 구독이 없습니다. 🔔 버튼을 먼저 눌러주세요.');
+  } catch (err) {
+    alert('테스트 발송 실패: ' + err.message);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 // 시작
+initServiceWorker();
 startCountdown();
 updateCountdownUI();
 </script>
